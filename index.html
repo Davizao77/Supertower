@@ -3234,6 +3234,7 @@ function mkUrl(id){return 'musica/'+document.querySelector('script[data-trk="'+i
 function retire(n,fade){
  const now=ctx.currentTime;try{n.g.gain.cancelScheduledValues(now);n.g.gain.setValueAtTime(n.g.gain.value,now);n.g.gain.linearRampToValueAtTime(0,now+fade)}catch(e){}
  setTimeout(()=>{try{n.el.pause();n.src.disconnect();n.g.disconnect()}catch(e){}try{n.el.removeAttribute('src');n.el.load()}catch(e){}URL.revokeObjectURL(n.url)},fade*1000+200)}
+let _nt=0;function note(t){try{let d=document.getElementById('musNote');if(!d){d=document.createElement('div');d.id='musNote';d.style.cssText='position:fixed;left:50%;top:8px;transform:translateX(-50%);background:#000b;color:#fff;font:12px sans-serif;padding:5px 10px;border-radius:10px;z-index:98;pointer-events:none';document.body.appendChild(d)}d.textContent=t;d.style.display='block';clearTimeout(_nt);_nt=setTimeout(()=>{d.style.display='none'},5000)}catch(e){}}
 function playCat(cat,fade){
  if(!ctx||!TR[cat].length)return;
  const id=pick(cat),now=ctx.currentTime;let url;
@@ -3243,7 +3244,8 @@ function playCat(cat,fade){
  if(WEB){src=ctx.createMediaElementSource(el);g=ctx.createGain();g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(1,now+fade);src.connect(g);g.connect(mBus)}else el.volume=Math.min(1,CFG.music);
  const n={el,g,src,url,cat,id,nx:0};
  el.addEventListener('ended',()=>{if(cur===n){cur=null;playCat(n.cat,.6)}});
- if(!muted)el.play().catch(()=>{});
+ el.addEventListener('error',()=>note('🎵 Música não carregou: '+id));
+ if(!muted)el.play().catch(e=>{if(e&&e.name!='NotAllowedError')note('🎵 Não consegui tocar: '+id)});
  if(cur)retire(cur,fade);
  cur=n;lastChange=performance.now()/1000}
 function decide(){
@@ -3353,6 +3355,64 @@ window.MUS={duck,mute:setMute,credits,play:c=>{unlock();if(TR[c])playCat(c,1)},s
   const n=Date.now();if(n-last<2500)return;last=n;
   try{if(typeof goFS=='function')goFS()}catch(e){}
  });
+})();
+</script>
+<script>
+// ===== SUPER DEFENSE: fluxo de ondas =====
+// - ao entrar na partida: 30s de preparação + botão "Continuar"
+// - onda vencida: próxima onda em 10s (botão "Continuar" pula a espera)
+// - com todos os inimigos já invocados: botão "Pular onda" chama a próxima onda por cima
+// - botão "Onda" manual só no modo treino (teste) e na rede; Boss Rush mantém a preparação própria
+(function(){
+const PREP_START=30,PREP_NEXT=10;
+const net=()=>window.NET&&NET.on;
+const auto=()=>S.run&&!S.over&&S.mode!='br'&&!S.test&&!net();
+const canSkip=()=>auto()&&S.active&&!S.queue.length&&!S.dbl&&S.enemies.length>0&&!(S.max<999&&S.wave>=S.max);
+let wasA=false,lastSk=false;
+const _sg=startGame;
+startGame=function(m,c){_sg.apply(this,arguments);wasA=false;if(m!='br'){S.prep=1;S.prepT=PREP_START;S.prepS=-1}else S.prep=0;ui()};
+const _u=update;
+update=function(dt){
+ if(auto()){
+  if(S.prep&&!S.active&&!(S.freeze>0)){
+   S.prepT-=dt;const s=Math.ceil(Math.max(0,S.prepT));
+   if(s!==S.prepS){S.prepS=s;ui()}
+   if(S.prepT<=0){S.prep=0;startWave()}
+  }
+ }else if(S.prep)S.prep=0;
+ _u(dt);
+ if(auto()){
+  const sk=canSkip();if(sk!==lastSk){lastSk=sk;ui()}
+  if(wasA&&!S.active&&!S.over){S.prep=1;S.prepT=PREP_NEXT;S.prepS=-1;ui()}
+  wasA=S.active;
+ }else wasA=false;
+};
+const _ui=ui;
+ui=function(){
+ _ui();
+ if(S.mode=='br')return;
+ const w=$('bW');if(!w)return;
+ if(auto()){
+  if(S.prep&&!S.active){
+   const s=Math.max(0,Math.ceil(S.prepT));
+   $('hW').textContent=(S.wave?'⏳ Onda '+(S.wave+1)+' em '+s+'s':'⏳ Preparação '+Math.floor(s/60)+':'+String(s%60).padStart(2,'0'));
+   w.innerHTML='<b>▶</b><br>Continuar';w.style.visibility='';w.style.pointerEvents='';w.disabled=false;
+  }else if(canSkip()){
+   w.innerHTML='<b>⏭</b><br>Pular onda';w.style.visibility='';w.style.pointerEvents='';w.disabled=false;
+  }else{w.style.visibility='hidden';w.style.pointerEvents='none'}
+ }else{
+  w.innerHTML='<b>▶</b><br>Onda';w.style.visibility='';w.style.pointerEvents='';w.disabled=false;
+ }
+};
+const bw=$('bW'),_c=bw.onclick;
+bw.onclick=function(){
+ if(auto()){
+  if(S.prep&&!S.active){S.prep=0;startWave();return}
+  if(canSkip()){S.active=false;startWave();return}
+  return;
+ }
+ return _c&&_c.apply(this,arguments);
+};
 })();
 </script>
 </body></html>
